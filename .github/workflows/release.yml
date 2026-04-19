@@ -142,4 +142,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.check-release.outputs.tag }}
-        run: gh release create "$TAG" dist/* --title "$TAG" --notes ""
+        run: |
+          gh release create "$TAG" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "$TAG" \
+            --notes ""
