@@ -113,15 +113,19 @@ jobs:
           ASSET_ARCH: ${{ matrix.asset_arch }}
         run: |
           asset_name="${PROJECT_NAME}_linux_${ASSET_ARCH}"
+          package_dir="package/${asset_name}"
           mkdir -p dist
-          cp "target/${{ matrix.target }}/release/${PROJECT_NAME}" "dist/${asset_name}"
-          chmod +x "dist/${asset_name}"
+          mkdir -p "$package_dir"
+          cp "target/${{ matrix.target }}/release/${PROJECT_NAME}" "${package_dir}/${asset_name}"
+          cp example-config.yml "${package_dir}/example-config.yml"
+          chmod +x "${package_dir}/${asset_name}"
+          (cd "$package_dir" && zip -r "../../dist/${asset_name}.zip" .)
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ needs.check-release.outputs.project_name }}_linux_${{ matrix.asset_arch }}
-          path: dist/${{ needs.check-release.outputs.project_name }}_linux_${{ matrix.asset_arch }}
+          name: ${{ needs.check-release.outputs.project_name }}_linux_${{ matrix.asset_arch }}.zip
+          path: dist/${{ needs.check-release.outputs.project_name }}_linux_${{ matrix.asset_arch }}.zip
           if-no-files-found: error
 
   release:
