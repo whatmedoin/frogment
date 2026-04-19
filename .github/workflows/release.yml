@@ -20,6 +20,8 @@ jobs:
       project_name: ${{ steps.metadata.outputs.project_name }}
       version: ${{ steps.metadata.outputs.version }}
       tag: ${{ steps.metadata.outputs.tag }}
+      release_exists: ${{ steps.release.outputs.release_exists }}
+      force_release: ${{ steps.release.outputs.force_release }}
       should_release: ${{ steps.release.outputs.should_release }}
     steps:
       - name: Checkout repository
@@ -46,7 +48,23 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.metadata.outputs.tag }}
+          FORCE_RELEASE: ${{ vars.FORCE_RELEASE }}
         run: |
+          force_release="${FORCE_RELEASE:-0}"
+          case "$force_release" in
+            0)
+              echo "force_release=false" >> "$GITHUB_OUTPUT"
+              ;;
+            1)
+              echo "FORCE_RELEASE=1. Existing release assets will be overwritten after all builds succeed."
+              echo "force_release=true" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "FORCE_RELEASE must be undefined, 0, or 1. Got: $force_release"
+              exit 1
+              ;;
+          esac
+
           status="$(
             curl -sS -o /dev/null -w "%{http_code}" \
               -H "Accept: application/vnd.github+json" \
@@ -57,10 +75,17 @@ jobs:
 
           case "$status" in
             200)
-              echo "Release $TAG already exists. Skipping build and release."
-              echo "should_release=false" >> "$GITHUB_OUTPUT"
+              echo "release_exists=true" >> "$GITHUB_OUTPUT"
+              if [ "$force_release" = "1" ]; then
+                echo "Release $TAG already exists. FORCE_RELEASE=1, so build will continue."
+                echo "should_release=true" >> "$GITHUB_OUTPUT"
+              else
+                echo "Release $TAG already exists. Skipping build and release."
+                echo "should_release=false" >> "$GITHUB_OUTPUT"
+              fi
               ;;
             404)
+              echo "release_exists=false" >> "$GITHUB_OUTPUT"
               echo "Release $TAG does not exist. Building and publishing release assets."
               echo "should_release=true" >> "$GITHUB_OUTPUT"
               ;;
@@ -142,13 +167,26 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Create GitHub release
+      - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.check-release.outputs.tag }}
+          RELEASE_EXISTS: ${{ needs.check-release.outputs.release_exists }}
+          FORCE_RELEASE_ENABLED: ${{ needs.check-release.outputs.force_release }}
         run: |
-          gh release create "$TAG" dist/* \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
-            --title "$TAG" \
-            --notes ""
+          if [ "$RELEASE_EXISTS" = "true" ]; then
+            if [ "$FORCE_RELEASE_ENABLED" != "true" ]; then
+              echo "Refusing to overwrite release $TAG because FORCE_RELEASE is not 1."
+              exit 1
+            fi
+
+            gh release upload "$TAG" dist/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          else
+            gh release create "$TAG" dist/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "$TAG" \
+              --notes ""
+          fi
